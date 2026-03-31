@@ -767,7 +767,7 @@ void FatTreeTopologyCfg::check_consistency() const {
 }
 
 
-FatTreeTopology::FatTreeTopology(const FatTreeTopologyCfg* cfg,
+FatTreeTopology::FatTreeTopology(FatTreeTopologyCfg* cfg,
                                 QueueLoggerFactory* logger_factory,
                                 EventList* ev,
                                 FirstFit * fit
@@ -834,6 +834,8 @@ FatTreeTopology::FatTreeTopology(const FatTreeTopologyCfg* cfg,
         simtime_picosec switch_latency = (_cfg->_switch_latencies[CORE_TIER] > 0) ? _cfg->_switch_latencies[CORE_TIER] : _cfg->_switch_latency;
         switches_c[j] = new FatTreeSwitch(*_eventlist, "Switch_Core_"+ntoa(j), FatTreeSwitch::CORE,j,switch_latency,this);
     }
+
+    tors = switches_lp;
       
     // links from lower layer pod switch to server
     for (uint32_t tor = 0; tor < _cfg->NTOR; tor++) {
@@ -1506,6 +1508,15 @@ vector<const Route*>* FatTreeTopology::get_bidir_paths(uint32_t src, uint32_t de
         cout << "pathcount " << paths->size() << endl;
         return paths;
     }
+}
+
+Route* FatTreeTopology::setup_uec_route(int host_nr) {
+    Route* host_to_tor = new Route();
+    host_to_tor->push_back(queues_ns_nlp[host_nr][HOST_POD_SWITCH(host_nr)][0]);
+    host_to_tor->push_back(pipes_ns_nlp[host_nr][HOST_POD_SWITCH(host_nr)][0]);
+    host_to_tor->push_back(queues_ns_nlp[host_nr][HOST_POD_SWITCH(host_nr)][0]->getRemoteEndpoint());
+
+    return host_to_tor;
 }
 
 void FatTreeTopology::count_queue(Queue* queue){

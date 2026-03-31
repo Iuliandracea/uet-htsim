@@ -33,54 +33,6 @@ class FatTreeTopology;
  * SUCH DAMAGE.
  */
 
-/*
- * Shamelessly copied from FreeBSD
- */
-
-/* ----- FreeBSD if_bridge hash function ------- */
-
-/*
- * The following hash function is adapted from "Hash Functions" by Bob Jenkins
- * ("Algorithm Alley", Dr. Dobbs Journal, September 1997).
- *
- * http://www.burtleburtle.net/bob/hash/spooky.html
- */
-
-#define MIX(a, b, c)                            \
-    do {                                        \
-        a -= b; a -= c; a ^= (c >> 13);         \
-        b -= c; b -= a; b ^= (a << 8);          \
-        c -= a; c -= b; c ^= (b >> 13);         \
-        a -= b; a -= c; a ^= (c >> 12);         \
-        b -= c; b -= a; b ^= (a << 16);         \
-        c -= a; c -= b; c ^= (b >> 5);          \
-        a -= b; a -= c; a ^= (c >> 3);          \
-        b -= c; b -= a; b ^= (a << 10);         \
-        c -= a; c -= b; c ^= (b >> 15);         \
-    } while (/*CONSTCOND*/0)
-
-static inline uint32_t freeBSDHash(uint32_t target1, uint32_t target2 = 0, uint32_t target3 = 0)
-{
-    uint32_t a = 0x9e3779b9, b = 0x9e3779b9, c = 0; // hask key
-        
-    b += target3;
-    c += target2;
-    a += target1;        
-    MIX(a, b, c);
-    return c;
-}
-
-#undef MIX
-
-class FlowletInfo {
-public:
-    uint32_t _egress;
-    simtime_picosec _last;
-
-    FlowletInfo(uint32_t egress,simtime_picosec lasttime) {_egress = egress; _last = lasttime;};
-
-};
-
 class FatTreeSwitch : public Switch {
 public:
     enum switch_type {
@@ -106,32 +58,9 @@ public:
     uint32_t replace_worst_choice(vector<FibEntry*>* ecmp_set, int8_t (*cmp)(FibEntry*,FibEntry*),uint32_t my_choice);
     uint32_t adaptive_route_p2c(vector<FibEntry*>* ecmp_set, int8_t (*cmp)(FibEntry*,FibEntry*));
 
-    static int8_t compare_flow_count(FibEntry* l, FibEntry* r);
-    static int8_t compare_pause(FibEntry* l, FibEntry* r);
-    static int8_t compare_bandwidth(FibEntry* l, FibEntry* r);
-    static int8_t compare_queuesize(FibEntry* l, FibEntry* r);
-    static int8_t compare_pqb(FibEntry* l, FibEntry* r);//compare pause,queue, bw.
-    static int8_t compare_pq(FibEntry* l, FibEntry* r);//compare pause, queue
-    static int8_t compare_pb(FibEntry* l, FibEntry* r);//compare pause, bandwidth
-    static int8_t compare_qb(FibEntry* l, FibEntry* r);//compare pause, bandwidth
-
-    static int8_t (*fn)(FibEntry*,FibEntry*);
-
     virtual void addHostPort(int addr, int flowid, PacketSink* transport_port);
 
     virtual void permute_paths(vector<FibEntry*>* uproutes);
-
-    static void set_strategy(routing_strategy s) { assert (_strategy==NIX); _strategy = s; }
-    static void set_ar_fraction(uint16_t f) { assert(f>=1);_ar_fraction = f;} 
-
-    static routing_strategy _strategy;
-    static uint16_t _ar_fraction;
-    static uint16_t _ar_sticky;
-    static simtime_picosec _sticky_delta;
-    static double _ecn_threshold_fraction;
-    static double _speculative_threshold_fraction;
-    static uint16_t _trim_size;
-    static bool _disable_trim;
 private:
     switch_type _type;
     Pipe* _pipe;
@@ -141,8 +70,6 @@ private:
     vector<FibEntry*>* _uproutes;
 
     unordered_map<uint32_t,FlowletInfo*> _flowlet_maps;
-
-    static unordered_map<BaseQueue*,uint32_t> _port_flow_counts;
 
     uint32_t _crt_route;
     uint32_t _hash_salt;

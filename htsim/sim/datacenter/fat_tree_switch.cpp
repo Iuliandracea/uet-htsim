@@ -6,8 +6,6 @@
 #include "queue_lossless.h"
 #include "queue_lossless_output.h"
 
-unordered_map<BaseQueue*,uint32_t> FatTreeSwitch::_port_flow_counts;
-
 FatTreeSwitch::FatTreeSwitch(EventList& eventlist, string s, switch_type t, uint32_t id,simtime_picosec delay, FatTreeTopology* ft): Switch(eventlist, s) {
     _id = id;
     _type = t;
@@ -180,131 +178,6 @@ uint32_t FatTreeSwitch::replace_worst_choice(vector<FibEntry*>* ecmp_set, int8_t
     else return my_choice;
 }
 
-
-int8_t FatTreeSwitch::compare_pause(FibEntry* left, FibEntry* right){
-    Route * r1= left->getEgressPort();
-    assert(r1 && r1->size()>1);
-    LosslessOutputQueue* q1 = dynamic_cast<LosslessOutputQueue*>(r1->at(0));
-    Route * r2= right->getEgressPort();
-    assert(r2 && r2->size()>1);
-    LosslessOutputQueue* q2 = dynamic_cast<LosslessOutputQueue*>(r2->at(0));
-
-    if (!q1->is_paused()&&q2->is_paused())
-        return 1;
-    else if (q1->is_paused()&&!q2->is_paused())
-        return -1;
-    else 
-        return 0;
-}
-
-int8_t FatTreeSwitch::compare_flow_count(FibEntry* left, FibEntry* right){
-    Route * r1= left->getEgressPort();
-    assert(r1 && r1->size()>1);
-    BaseQueue* q1 = (BaseQueue*)(r1->at(0));
-    Route * r2= right->getEgressPort();
-    assert(r2 && r2->size()>1);
-    BaseQueue* q2 = (BaseQueue*)(r2->at(0));
-
-    if (_port_flow_counts.find(q1)==_port_flow_counts.end())
-        _port_flow_counts[q1] = 0;
-
-    if (_port_flow_counts.find(q2)==_port_flow_counts.end())
-        _port_flow_counts[q2] = 0;
-
-    //cout << "CMP q1 " << q1 << "=" << _port_flow_counts[q1] << " q2 " << q2 << "=" << _port_flow_counts[q2] << endl; 
-
-    if (_port_flow_counts[q1] < _port_flow_counts[q2])
-        return 1;
-    else if (_port_flow_counts[q1] > _port_flow_counts[q2] )
-        return -1;
-    else 
-        return 0;
-}
-
-int8_t FatTreeSwitch::compare_queuesize(FibEntry* left, FibEntry* right){
-    Route * r1= left->getEgressPort();
-    assert(r1 && r1->size()>1);
-    BaseQueue* q1 = dynamic_cast<BaseQueue*>(r1->at(0));
-    Route * r2= right->getEgressPort();
-    assert(r2 && r2->size()>1);
-    BaseQueue* q2 = dynamic_cast<BaseQueue*>(r2->at(0));
-
-    if (q1->quantized_queuesize() < q2->quantized_queuesize())
-        return 1;
-    else if (q1->quantized_queuesize() > q2->quantized_queuesize())
-        return -1;
-    else 
-        return 0;
-}
-
-int8_t FatTreeSwitch::compare_bandwidth(FibEntry* left, FibEntry* right){
-    Route * r1= left->getEgressPort();
-    assert(r1 && r1->size()>1);
-    BaseQueue* q1 = dynamic_cast<BaseQueue*>(r1->at(0));
-    Route * r2= right->getEgressPort();
-    assert(r2 && r2->size()>1);
-    BaseQueue* q2 = dynamic_cast<BaseQueue*>(r2->at(0));
-
-    if (q1->quantized_utilization() < q2->quantized_utilization())
-        return 1;
-    else if (q1->quantized_utilization() > q2->quantized_utilization())
-        return -1;
-    else 
-        return 0;
-
-    /*if (q1->average_utilization() < q2->average_utilization())
-        return 1;
-    else if (q1->average_utilization() > q2->average_utilization())
-        return -1;
-    else 
-        return 0;        */
-}
-
-int8_t FatTreeSwitch::compare_pqb(FibEntry* left, FibEntry* right){
-    //compare pause, queuesize, bandwidth.
-    int8_t p = compare_pause(left, right);
-
-    if (p!=0)
-        return p;
-    
-    p = compare_queuesize(left,right);
-
-    if (p!=0)
-        return p;
-
-    return compare_bandwidth(left,right);
-}
-
-int8_t FatTreeSwitch::compare_pq(FibEntry* left, FibEntry* right){
-    //compare pause, queuesize, bandwidth.
-    int8_t p = compare_pause(left, right);
-
-    if (p!=0)
-        return p;
-    
-    return compare_queuesize(left,right);
-}
-
-int8_t FatTreeSwitch::compare_qb(FibEntry* left, FibEntry* right){
-    //compare pause, queuesize, bandwidth.
-    int8_t p = compare_queuesize(left, right);
-
-    if (p!=0)
-        return p;
-    
-    return compare_bandwidth(left,right);
-}
-
-int8_t FatTreeSwitch::compare_pb(FibEntry* left, FibEntry* right){
-    //compare pause, queuesize, bandwidth.
-    int8_t p = compare_pause(left, right);
-
-    if (p!=0)
-        return p;
-    
-    return compare_bandwidth(left,right);
-}
-
 void FatTreeSwitch::permute_paths(vector<FibEntry *>* uproutes) {
     int len = uproutes->size();
     for (int i = 0; i < len; i++) {
@@ -314,16 +187,6 @@ void FatTreeSwitch::permute_paths(vector<FibEntry *>* uproutes) {
         (*uproutes)[len-1-i] = tmppath;
     }
 }
-
-FatTreeSwitch::routing_strategy FatTreeSwitch::_strategy = FatTreeSwitch::NIX;
-uint16_t FatTreeSwitch::_ar_fraction = 0;
-uint16_t FatTreeSwitch::_ar_sticky = FatTreeSwitch::PER_PACKET;
-simtime_picosec FatTreeSwitch::_sticky_delta = timeFromUs((uint32_t)10);
-double FatTreeSwitch::_ecn_threshold_fraction = 0.2;
-double FatTreeSwitch::_speculative_threshold_fraction = 0.2;
-int8_t (*FatTreeSwitch::fn)(FibEntry*,FibEntry*)= &FatTreeSwitch::compare_queuesize;
-uint16_t FatTreeSwitch::_trim_size = 64;
-bool FatTreeSwitch::_disable_trim = false;
 
 Route* FatTreeSwitch::getNextHop(Packet& pkt, BaseQueue* ingress_port){
     vector<FibEntry*> * available_hops = _fib->getRoutes(pkt.dst());

@@ -233,7 +233,7 @@ template<class P> void delete_3d_vector(vector<vector<vector<P*>>>& vec3d);
 
 class FatTreeTopology: public Topology{
 public:
-    FatTreeTopology(const FatTreeTopologyCfg* cfg,
+    FatTreeTopology(FatTreeTopologyCfg* cfg,
                     QueueLoggerFactory* logger_factory,
                     EventList* ev,
                     FirstFit * fit);
@@ -274,11 +274,22 @@ public:
     void add_failed_link(uint32_t type, uint32_t switch_id, uint32_t link_id);
 
     // add loggers to record total queue size at switches
-    virtual void add_switch_loggers(Logfile& log, simtime_picosec sample_period); 
+    virtual void add_switch_loggers(Logfile& log, simtime_picosec sample_period);
+
+    int get_oversubscription_ratio() override { return _cfg->get_oversubscription_ratio(); };
+    int get_oversubscription_ratio(uint32_t route_strategy) override { return _cfg->get_oversubscription_ratio(); };
+
+    uint32_t HOST_POD_SWITCH(uint32_t src){
+        return src/_cfg->radix_down(TOR_TIER);
+    }
+
+    uint32_t HOST_TOR(uint32_t src) {return HOST_POD_SWITCH(src);};
+
+    Route* setup_uec_route(int host_nr) override;
 
     const FatTreeTopologyCfg& cfg() { return *_cfg; };
 private:
-    const FatTreeTopologyCfg* _cfg;
+    FatTreeTopologyCfg* _cfg;
     map<Queue*,int> _link_usage;
     int64_t find_lp_switch(Queue* queue);
     int64_t find_up_switch(Queue* queue);

@@ -11,6 +11,9 @@ set(LIB_SOURCES
     star_topology.cpp
     fat_tree_switch.cpp
     dragon_fly_topology.cpp
+    dragon_fly_plus_switch.cpp
+    dragon_fly_plus_topology.cpp
+    topology.cpp
     generic_topology.cpp
 )
 

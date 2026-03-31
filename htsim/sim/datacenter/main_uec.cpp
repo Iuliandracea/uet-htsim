@@ -28,6 +28,9 @@
 #include "fat_tree_topology.h"
 #include "fat_tree_switch.h"
 
+#include "dragon_fly_plus_topology.h"
+#include "dragon_fly_plus_switch.h"
+
 #include <list>
 
 // Simulation params
@@ -67,13 +70,17 @@ uint32_t calculate_bdp_pkt(FatTreeTopologyCfg* t_cfg, linkspeed_bps host_linkspe
 }
 
 int main(int argc, char **argv) {
+    for (int k = 0; k < argc; k++) {
+        cout << argv[k] << " ";
+    }
+    cout << endl;
     Clock c(timeFromSec(5 / 100.), eventlist);
     bool param_queuesize_set = false;
     uint32_t queuesize_pkt = 0;
     linkspeed_bps linkspeed = speedFromMbps((double)HOST_NIC);
     int packet_size = 4150;
     uint32_t path_entropy_size = 64;
-    uint32_t cwnd = 0, no_of_nodes = 0;
+    uint32_t cwnd = 0, no_of_nodes = 0, radix = 4;
     uint32_t tiers = 3; // we support 2 and 3 tier fattrees
     uint32_t planes = 1;  // multi-plane topologies
     uint32_t ports = 1;  // ports per NIC
@@ -87,6 +94,9 @@ int main(int argc, char **argv) {
 
     enum LoadBalancing_Algo { BITMAP, REPS, REPS_LEGACY, OBLIVIOUS, MIXED};
     LoadBalancing_Algo load_balancing_algo = MIXED;
+
+    topology_type topo_type = FAT_TREE_T;
+    string topo_name = "FatTree";
 
     bool log_sink = false;
     bool log_nic = false;
@@ -125,7 +135,7 @@ int main(int argc, char **argv) {
     queue_type snd_type = FAIR_PRIO;
 
     float ar_sticky_delta = 10;
-    FatTreeSwitch::sticky_choices ar_sticky = FatTreeSwitch::PER_PACKET;
+    Switch::sticky_choices ar_sticky = Switch::PER_PACKET;
 
     char* tm_file = NULL;
     char* topo_file = NULL;
@@ -136,6 +146,22 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i],"-o")) {
             filename.str(std::string());
             filename << argv[i+1];
+            i++;
+        } else if (!strcmp(argv[i], "-topo_type")) {
+            if (!strcmp(argv[i+1], "FAT_TREE")) {
+                topo_type = FAT_TREE_T;
+                topo_name = "FatTree";
+            } else if (!strcmp(argv[i+1], "DFP_DENSE")) {
+                topo_type = DFP_DENSE_T;
+                topo_name = "DragonFlyPlus DENSE";
+            } else if (!strcmp(argv[i+1], "DFP_SPARSE")) {
+                topo_type = DFP_SPARSE_T;
+                topo_name = "DragonFlyPlus SPARSE";
+            }
+            i++;
+        } else if (!strcmp(argv[i], "-radix")) {
+            radix = atoi(argv[i+1]);
+            cout << "router radix " << radix << endl;
             i++;
         } else if (!strcmp(argv[i],"-conn_reuse")){
             conn_reuse = true;
@@ -425,9 +451,9 @@ int main(int argc, char **argv) {
             i++;
         } else if (!strcmp(argv[i],"-ar_granularity")){
             if (!strcmp(argv[i+1],"packet"))
-                ar_sticky = FatTreeSwitch::PER_PACKET;
+                ar_sticky = Switch::PER_PACKET;
             else if (!strcmp(argv[i+1],"flow"))
-                ar_sticky = FatTreeSwitch::PER_FLOWLET;
+                ar_sticky = Switch::PER_FLOWLET;
             else  {
                 cout << "Expecting -ar_granularity packet|flow, found " << argv[i+1] << endl;
                 exit(1);
@@ -436,31 +462,31 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-ar_method")){
             if (!strcmp(argv[i+1],"pause")){
                 cout << "Adaptive routing based on pause state " << endl;
-                FatTreeSwitch::fn = &FatTreeSwitch::compare_pause;
+                Switch::fn = &Switch::compare_pause;
             }
             else if (!strcmp(argv[i+1],"queue")){
                 cout << "Adaptive routing based on queue size " << endl;
-                FatTreeSwitch::fn = &FatTreeSwitch::compare_queuesize;
+                Switch::fn = &Switch::compare_queuesize;
             }
             else if (!strcmp(argv[i+1],"bandwidth")){
                 cout << "Adaptive routing based on bandwidth utilization " << endl;
-                FatTreeSwitch::fn = &FatTreeSwitch::compare_bandwidth;
+                Switch::fn = &Switch::compare_bandwidth;
             }
             else if (!strcmp(argv[i+1],"pqb")){
                 cout << "Adaptive routing based on pause, queuesize and bandwidth utilization " << endl;
-                FatTreeSwitch::fn = &FatTreeSwitch::compare_pqb;
+                Switch::fn = &Switch::compare_pqb;
             }
             else if (!strcmp(argv[i+1],"pq")){
                 cout << "Adaptive routing based on pause, queuesize" << endl;
-                FatTreeSwitch::fn = &FatTreeSwitch::compare_pq;
+                Switch::fn = &Switch::compare_pq;
             }
             else if (!strcmp(argv[i+1],"pb")){
                 cout << "Adaptive routing based on pause, bandwidth utilization" << endl;
-                FatTreeSwitch::fn = &FatTreeSwitch::compare_pb;
+                Switch::fn = &Switch::compare_pb;
             }
             else if (!strcmp(argv[i+1],"qb")){
                 cout << "Adaptive routing based on queuesize, bandwidth utilization" << endl;
-                FatTreeSwitch::fn = &FatTreeSwitch::compare_qb; 
+                Switch::fn = &Switch::compare_qb; 
             }
             else {
                 cout << "Unknown AR method expecting one of pause, queue, bandwidth, pqb, pq, pb, qb" << endl;
@@ -470,40 +496,43 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-strat")){
             if (!strcmp(argv[i+1], "ecmp_host")) {
                 route_strategy = ECMP_FIB;
-                FatTreeSwitch::set_strategy(FatTreeSwitch::ECMP);
+                Switch::set_strategy(Switch::ECMP);
+            } else if (!strcmp(argv[i+1], "ecmp_all")) {
+                route_strategy = ECMP_FIB;
+                Switch::set_strategy(Switch::ECMP_ALL);
             } else if (!strcmp(argv[i+1], "rr_ecmp")) {
                 //this is the host route strategy;
                 route_strategy = ECMP_FIB_ECN;
                 qt = COMPOSITE_ECN_LB;
                 //this is the switch route strategy. 
-                FatTreeSwitch::set_strategy(FatTreeSwitch::RR_ECMP);
+                Switch::set_strategy(Switch::RR_ECMP);
             } else if (!strcmp(argv[i+1], "ecmp_host_ecn")) {
                 route_strategy = ECMP_FIB_ECN;
-                FatTreeSwitch::set_strategy(FatTreeSwitch::ECMP);
+                Switch::set_strategy(Switch::ECMP);
                 qt = COMPOSITE_ECN_LB;
             } else if (!strcmp(argv[i+1], "reactive_ecn")) {
                 // Jitu's suggestion for something really simple
                 // One path at a time, but switch whenever we get a trim or ecn
                 //this is the host route strategy;
                 route_strategy = REACTIVE_ECN;
-                FatTreeSwitch::set_strategy(FatTreeSwitch::ECMP);
+                Switch::set_strategy(Switch::ECMP);
                 qt = COMPOSITE_ECN_LB;
             } else if (!strcmp(argv[i+1], "ecmp_ar")) {
                 route_strategy = ECMP_FIB;
                 path_entropy_size = 1;
-                FatTreeSwitch::set_strategy(FatTreeSwitch::ADAPTIVE_ROUTING);
+                Switch::set_strategy(Switch::ADAPTIVE_ROUTING);
             } else if (!strcmp(argv[i+1], "ecmp_host_ar")) {
                 route_strategy = ECMP_FIB;
-                FatTreeSwitch::set_strategy(FatTreeSwitch::ECMP_ADAPTIVE);
+                Switch::set_strategy(Switch::ECMP_ADAPTIVE);
                 //the stuff below obsolete
-                //FatTreeSwitch::set_ar_fraction(atoi(argv[i+2]));
+                //Switch::set_ar_fraction(atoi(argv[i+2]));
                 //cout << "AR fraction: " << atoi(argv[i+2]) << endl;
                 //i++;
             } else if (!strcmp(argv[i+1], "ecmp_rr")) {
                 // switch round robin
                 route_strategy = ECMP_FIB;
                 path_entropy_size = 1;
-                FatTreeSwitch::set_strategy(FatTreeSwitch::RR);
+                Switch::set_strategy(Switch::RR);
             }
             i++;
         } else {
@@ -533,18 +562,18 @@ int main(int argc, char **argv) {
 
     if (route_strategy==NOT_SET){
         route_strategy = ECMP_FIB;
-        FatTreeSwitch::set_strategy(FatTreeSwitch::ECMP);
+        Switch::set_strategy(Switch::ECMP);
     }
 
     /*
     UecSink::_oversubscribed_congestion_control = oversubscribed_congestion_control;
     */
 
-    FatTreeSwitch::_ar_sticky = ar_sticky;
-    FatTreeSwitch::_sticky_delta = timeFromUs(ar_sticky_delta);
-    FatTreeSwitch::_ecn_threshold_fraction = ecn_thresh;
-    FatTreeSwitch::_disable_trim = disable_trim;
-    FatTreeSwitch::_trim_size = trimsize;
+    Switch::_ar_sticky = ar_sticky;
+    Switch::_sticky_delta = timeFromUs(ar_sticky_delta);
+    Switch::_ecn_threshold_fraction = ecn_thresh;
+    Switch::_disable_trim = disable_trim;
+    Switch::_trim_size = trimsize;
 
     eventlist.setEndtime(timeFromUs((uint32_t)end_time));
 
@@ -655,22 +684,23 @@ int main(int argc, char **argv) {
     }
 
     unique_ptr<FatTreeTopologyCfg> topo_cfg;
-    if (topo_file) {
-        topo_cfg = FatTreeTopologyCfg::load(topo_file, memFromPkt(queuesize_pkt), qt, snd_type);
+    simtime_picosec network_max_unloaded_rtt = 0;
+    if (topo_type == FAT_TREE_T) {
+        if (topo_file) {
+            topo_cfg = FatTreeTopologyCfg::load(topo_file, memFromPkt(queuesize_pkt), qt, snd_type);
 
-        if (topo_cfg->no_of_nodes() != no_of_nodes) {
-            cerr << "Mismatch between connection matrix (" << no_of_nodes << " nodes) and topology ("
-                    << topo_cfg->no_of_nodes() << " nodes)" << endl;
-            exit(1);
+            if (topo_cfg->no_of_nodes() != no_of_nodes) {
+                cerr << "Mismatch between connection matrix (" << no_of_nodes << " nodes) and topology ("
+                        << topo_cfg->no_of_nodes() << " nodes)" << endl;
+                exit(1);
+            }
+        } else {
+            topo_cfg = make_unique<FatTreeTopologyCfg>(tiers, no_of_nodes, linkspeed, memFromPkt(queuesize_pkt),
+                                                    hop_latency, switch_latency, 
+                                                    qt, snd_type);
         }
-    } else {
-        topo_cfg = make_unique<FatTreeTopologyCfg>(tiers, no_of_nodes, linkspeed, memFromPkt(queuesize_pkt),
-                                                   hop_latency, switch_latency, 
-                                                   qt, snd_type);
+        network_max_unloaded_rtt = calculate_rtt(topo_cfg.get(), linkspeed);
     }
-
-    simtime_picosec network_max_unloaded_rtt = calculate_rtt(topo_cfg.get(), linkspeed);
-
     mem_b queuesize = 0;
     if (!param_queuesize_set) {
         uint32_t bdp_pkt = calculate_bdp_pkt(topo_cfg.get(), linkspeed);
@@ -679,13 +709,14 @@ int main(int argc, char **argv) {
     } else {
         queuesize = memFromPkt(queuesize_pkt);
     }
-    topo_cfg->set_queue_sizes(queuesize);
+    if (topo_type == FAT_TREE_T)
+        topo_cfg->set_queue_sizes(queuesize);
 
     if (topo_num_failed > 0) {
         topo_cfg->set_failed_links(topo_num_failed);
     }
 
-    if (topo_cfg->get_oversubscription_ratio() > 1 && !UecSrc::_sender_based_cc && !force_disable_oversubscribed_cc) {
+    if (topo_type == FAT_TREE_T && topo_cfg->get_oversubscription_ratio() > 1 && !UecSrc::_sender_based_cc && !force_disable_oversubscribed_cc) {
         UecSink::_oversubscribed_cc = true;
         OversubscribedCC::setOversubscriptionRatio(topo_cfg->get_oversubscription_ratio());
         cout << "Using simple receiver oversubscribed CC. Oversubscription ratio is " << topo_cfg->get_oversubscription_ratio() << endl;
@@ -695,9 +726,9 @@ int main(int argc, char **argv) {
     UecSrc::_min_rto = timeFromUs(15 + queuesize * 6.0 * 8 * 1000000 / linkspeed);
     cout << "Setting min RTO to " << timeAsUs(UecSrc::_min_rto) << endl;
 
-    if (ecn){
-        uint32_t bdp_pkt = calculate_bdp_pkt(topo_cfg.get(), linkspeed);
+    if (ecn) {
         if (!param_ecn_set) {
+            uint32_t bdp_pkt = calculate_bdp_pkt(topo_cfg.get(), linkspeed);
             ecn_low = memFromPkt(ceil(bdp_pkt * 0.2));
             ecn_high = memFromPkt(ceil(bdp_pkt * 0.8));
         } else {
@@ -705,22 +736,84 @@ int main(int argc, char **argv) {
             ecn_high = memFromPkt(ecn_high);
         }
         cout << "Setting ECN to parameters low " << ecn_low << " high " << ecn_high <<  " enable on tor downlink " << !receiver_driven << endl;
-        topo_cfg->set_ecn_parameters(true, !receiver_driven, ecn_low, ecn_high);
+
+        Topology::_enable_ecn = true;
+        Topology::_enable_ecn_on_tor_downlink = !receiver_driven;
+        Topology::_ecn_low = ecn_low;
+        Topology::_ecn_high = ecn_high;
+
+        if (topo_type == FAT_TREE_T)
+            topo_cfg->set_ecn_parameters(true, !receiver_driven, ecn_low, ecn_high);
         assert(ecn_low <= ecn_high);
         assert(ecn_high <= queuesize);
     }
 
-    cout << *topo_cfg << endl;
+    // cout << *topo_cfg << endl;
 
-    vector<unique_ptr<FatTreeTopology>> topo;
+    vector<unique_ptr<Topology>> topo;
     topo.resize(planes);
     for (uint32_t p = 0; p < planes; p++) {
-        topo[p] = make_unique<FatTreeTopology>(topo_cfg.get(), qlf, &eventlist, nullptr);
+        cout << "Plane: " << p
+             << " " << topo_name
+             << endl;
+        if (topo_type == FAT_TREE_T) {
+            topo[p] = make_unique<FatTreeTopology>(topo_cfg.get(), qlf, &eventlist, nullptr);
+
+            if (log_switches) {
+                topo[p]->add_switch_loggers(logfile, logtime);
+            }
+        } else if (topo_type == DFP_DENSE_T || topo_type == DFP_SPARSE_T) {
+            if (topo_type == DFP_DENSE_T && Switch::fn == &Switch::compare_queuesize)
+                Switch::fn = &DragonFlyPlusSwitch::compare_queuesize_dense;
+            else if (topo_type == DFP_SPARSE_T && Switch::fn == &Switch::compare_queuesize)
+                Switch::fn = &DragonFlyPlusSwitch::compare_queuesize_sparse;
+            topo[p] = make_unique<DragonFlyPlusTopology>(radix, linkspeed, queuesize, qlf, &eventlist, qt, hop_latency, switch_latency, topo_type);
+
+            if (topo[p]->no_of_nodes() != no_of_nodes) {
+                cerr << "Mismatch between connection matrix (" << no_of_nodes << " nodes) and topology ("
+                        << topo[p]->no_of_nodes() << " nodes)" << endl;
+                exit(1);
+            }
+        }
+
+        if (topo[p]->get_oversubscription_ratio() > 1 && !UecSrc::_sender_based_cc && !force_disable_oversubscribed_cc) {
+            UecSink::_oversubscribed_cc = true;
+            int oversubscription_ratio = 1;
+            if (topo_type == FAT_TREE_T)
+                oversubscription_ratio = topo[p]->get_oversubscription_ratio();
+            else if (topo_type == DFP_DENSE_T || topo_type == DFP_SPARSE_T)
+                oversubscription_ratio = topo[p]->get_oversubscription_ratio(Switch::_strategy);
+
+            OversubscribedCC::setOversubscriptionRatio(oversubscription_ratio);
+            cout << "Using simple receiver oversubscribed CC. Oversubscription ratio is " << oversubscription_ratio << endl;
+        }
 
         if (log_switches) {
-            topo[p]->add_switch_loggers(logfile, logtime);
+            topo[p]->add_switch_loggers(logfile, timeFromUs(20.0));
+        }
+
+        if (p==0) {
+            if (topo_type == FAT_TREE_T) {
+                network_max_unloaded_rtt = calculate_rtt(topo_cfg.get(), linkspeed);
+            } else {
+                network_max_unloaded_rtt = 2 * topo[p]->get_diameter_latency() + (Packet::data_packet_size() * 8 / speedAsGbps(linkspeed) * topo[p]->get_diameter() * 1000) + (UecBasePacket::get_ack_size() * 8 / speedAsGbps(linkspeed) * topo[p]->get_diameter() * 1000);
+            }
+        } else {
+            // We only allow identical network rtts for now
+            assert(network_max_unloaded_rtt == topo[p]->get_diameter_latency());
         }
     }
+
+    // vector<unique_ptr<FatTreeTopology>> topo;
+    // topo.resize(planes);
+    // for (uint32_t p = 0; p < planes; p++) {
+    //     topo[p] = make_unique<FatTreeTopology>(topo_cfg.get(), qlf, &eventlist, nullptr);
+
+    //     if (log_switches) {
+    //         topo[p]->add_switch_loggers(logfile, logtime);
+    //     }
+    // }
+    assert(timeAsUs(network_max_unloaded_rtt) > 1.0);
     cout << "network_max_unloaded_rtt " << timeAsUs(network_max_unloaded_rtt) << endl;
 
     if (UecSink::_oversubscribed_cc)
@@ -728,13 +821,13 @@ int main(int argc, char **argv) {
 
     
     //handle link failures specified in the connection matrix.
-    for (size_t c = 0; c < conns->failures.size(); c++){
-        failure* crt = conns->failures.at(c);
+    // for (size_t c = 0; c < conns->failures.size(); c++){
+    //     failure* crt = conns->failures.at(c);
 
-        cout << "Adding link failure switch type" << crt->switch_type << " Switch ID " << crt->switch_id << " link ID "  << crt->link_id << endl;
-        // xxx we only support failures in plane 0 for now.
-        topo[0]->add_failed_link(crt->switch_type,crt->switch_id,crt->link_id);
-    }
+    //     cout << "Adding link failure switch type" << crt->switch_type << " Switch ID " << crt->switch_id << " link ID "  << crt->link_id << endl;
+    //     // xxx we only support failures in plane 0 for now.
+    //     topo[0]->add_failed_link(crt->switch_type,crt->switch_id,crt->link_id);
+    // }
 
     // Initialize congestion control algorithms
     if (receiver_driven) {
@@ -793,11 +886,19 @@ int main(int argc, char **argv) {
         }
 
         assert(planes > 0);
-        simtime_picosec transmission_delay = (Packet::data_packet_size() * 8 / speedAsGbps(linkspeed) * topo_cfg->get_diameter() * 1000) 
+        simtime_picosec transmission_delay = 0;
+        simtime_picosec base_rtt_bw_two_points = 0;
+        if (topo_type == FAT_TREE_T) {
+            transmission_delay = (Packet::data_packet_size() * 8 / speedAsGbps(linkspeed) * topo_cfg->get_diameter() * 1000) 
                                              + (UecBasePacket::get_ack_size() * 8 / speedAsGbps(linkspeed) * topo_cfg->get_diameter() * 1000);
-        simtime_picosec base_rtt_bw_two_points = 2*topo_cfg->get_two_point_diameter_latency(src, dest) + transmission_delay;
+            base_rtt_bw_two_points = 2*topo_cfg->get_two_point_diameter_latency(src, dest) + transmission_delay;
+        } else {
+            transmission_delay = (Packet::data_packet_size() * 8 / speedAsGbps(linkspeed) * topo[0]->get_diameter() * 1000) 
+                                             + (UecBasePacket::get_ack_size() * 8 / speedAsGbps(linkspeed) * topo[0]->get_diameter() * 1000);
+            base_rtt_bw_two_points = 2*topo[0]->get_two_point_diameter_latency(src, dest) + transmission_delay;
+        }
 
-        //cout << "Connection " << crt->src << "->" <<crt->dst << " starting at " << crt->start << " size " << crt->size << endl;
+        // cout << "Connection " << crt->src << "->" <<crt->dst << " starting at " << crt->start << " size " << crt->size << endl;
 
         if (!conn_reuse 
             || (crt->flowid and flowmap.find(crt->flowid) == flowmap.end())) {
@@ -941,27 +1042,42 @@ int main(int argc, char **argv) {
                 case ECMP_FIB_ECN:
                 case REACTIVE_ECN:
                     {
-                        Route* srctotor = new Route();
-                        srctotor->push_back(topo[p]->queues_ns_nlp[src][topo_cfg->HOST_POD_SWITCH(src)][0]);
-                        srctotor->push_back(topo[p]->pipes_ns_nlp[src][topo_cfg->HOST_POD_SWITCH(src)][0]);
-                        srctotor->push_back(topo[p]->queues_ns_nlp[src][topo_cfg->HOST_POD_SWITCH(src)][0]->getRemoteEndpoint());
-
-                        Route* dsttotor = new Route();
-                        dsttotor->push_back(topo[p]->queues_ns_nlp[dest][topo_cfg->HOST_POD_SWITCH(dest)][0]);
-                        dsttotor->push_back(topo[p]->pipes_ns_nlp[dest][topo_cfg->HOST_POD_SWITCH(dest)][0]);
-                        dsttotor->push_back(topo[p]->queues_ns_nlp[dest][topo_cfg->HOST_POD_SWITCH(dest)][0]->getRemoteEndpoint());
+                        Route* srctotor = topo[p]->setup_uec_route(src);
+                        Route* dsttotor = topo[p]->setup_uec_route(dest);
 
                         uec_src->connectPort(p, *srctotor, *dsttotor, *uec_snk, crt->start);
-                        //uec_src->setPaths(path_entropy_size);
-                        //uec_snk->setPaths(path_entropy_size);
+                        // uec_src->setPaths(path_entropy_size);
+                        // uec_snk->setPaths(path_entropy_size);
 
-                        //register src and snk to receive packets from their respective TORs. 
-                        assert(topo[p]->switches_lp[topo_cfg->HOST_POD_SWITCH(src)]);
-                        assert(topo[p]->switches_lp[topo_cfg->HOST_POD_SWITCH(src)]);
-                        topo[p]->switches_lp[topo_cfg->HOST_POD_SWITCH(src)]->addHostPort(src,uec_snk->flowId(),uec_src->getPort(p));
-                        topo[p]->switches_lp[topo_cfg->HOST_POD_SWITCH(dest)]->addHostPort(dest,uec_src->flowId(),uec_snk->getPort(p));
+                        //register src and snk to receive packets from their respective TORs.
+                        assert(topo[p]->tors[topo[p]->HOST_TOR(src)]);
+                        assert(topo[p]->tors[topo[p]->HOST_TOR(dest)]);
+                        topo[p]->tors[topo[p]->HOST_TOR(src)]->addHostPort(src,uec_snk->flowId(),uec_src->getPort(p));
+                        topo[p]->tors[topo[p]->HOST_TOR(dest)]->addHostPort(dest,uec_src->flowId(),uec_snk->getPort(p));
                         break;
                     }
+                    // {
+                    //     Route* srctotor = new Route();
+                    //     srctotor->push_back(topo[p]->queues_ns_nlp[src][topo_cfg->HOST_POD_SWITCH(src)][0]);
+                    //     srctotor->push_back(topo[p]->pipes_ns_nlp[src][topo_cfg->HOST_POD_SWITCH(src)][0]);
+                    //     srctotor->push_back(topo[p]->queues_ns_nlp[src][topo_cfg->HOST_POD_SWITCH(src)][0]->getRemoteEndpoint());
+
+                    //     Route* dsttotor = new Route();
+                    //     dsttotor->push_back(topo[p]->queues_ns_nlp[dest][topo_cfg->HOST_POD_SWITCH(dest)][0]);
+                    //     dsttotor->push_back(topo[p]->pipes_ns_nlp[dest][topo_cfg->HOST_POD_SWITCH(dest)][0]);
+                    //     dsttotor->push_back(topo[p]->queues_ns_nlp[dest][topo_cfg->HOST_POD_SWITCH(dest)][0]->getRemoteEndpoint());
+
+                    //     uec_src->connectPort(p, *srctotor, *dsttotor, *uec_snk, crt->start);
+                    //     //uec_src->setPaths(path_entropy_size);
+                    //     //uec_snk->setPaths(path_entropy_size);
+
+                    //     //register src and snk to receive packets from their respective TORs. 
+                    //     assert(topo[p]->switches_lp[topo_cfg->HOST_POD_SWITCH(src)]);
+                    //     assert(topo[p]->switches_lp[topo_cfg->HOST_POD_SWITCH(src)]);
+                    //     topo[p]->switches_lp[topo_cfg->HOST_POD_SWITCH(src)]->addHostPort(src,uec_snk->flowId(),uec_src->getPort(p));
+                    //     topo[p]->switches_lp[topo_cfg->HOST_POD_SWITCH(dest)]->addHostPort(dest,uec_src->flowId(),uec_snk->getPort(p));
+                    //     break;
+                    // }
                 default:
                     abort();
                 }
