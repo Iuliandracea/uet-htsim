@@ -17,6 +17,7 @@
 #include "queue_lossless_output.h"
 #include "swift_scheduler.h"
 #include "ecnqueue.h"
+#include "uec.h"
 
 string ntoa(double n);
 string itoa(uint64_t n);
@@ -133,7 +134,8 @@ void DragonFlyPlusTopology::set_params() {
 }
 
 Queue* DragonFlyPlusTopology::alloc_src_queue(QueueLogger* queueLogger){
-    return new FairPriorityQueue(_linkspeed, memFromPkt(FEEDER_BUFFER), *_eventlist, queueLogger);
+    // return new FairPriorityQueue(_linkspeed, memFromPkt(FEEDER_BUFFER), *_eventlist, queueLogger);
+    return new DummyQueue(_linkspeed, memFromPkt(FEEDER_BUFFER), *_eventlist, queueLogger);
     //return new PriorityQueue(speedFromMbps((uint64_t)HOST_NIC), memFromPkt(FEEDER_BUFFER), *_eventlist, queueLogger);
     
 }
@@ -145,7 +147,10 @@ Queue* DragonFlyPlusTopology::alloc_queue(QueueLogger* queueLogger, mem_b queues
 Queue* DragonFlyPlusTopology::alloc_queue(QueueLogger* queueLogger, linkspeed_bps speed, mem_b queuesize, link_direction dir, bool tor){
     if (qt==RANDOM)
         return new RandomQueue(speed, queuesize, *_eventlist, queueLogger, memFromPkt(RANDOM_BUFFER));
-    else if (qt==COMPOSITE) {
+    else if (qt==COMPOSITE || qt == LOSSLESS || qt == LOSSLESS_INPUT || qt == LOSSLESS_INPUT_ECN) {
+        if (qt == LOSSLESS || qt == LOSSLESS_INPUT || qt == LOSSLESS_INPUT_ECN) {
+            assert(CompositeQueue::isLossless);
+        }
         CompositeQueue *q = new CompositeQueue(speed, queuesize, *_eventlist, queueLogger, Switch::_trim_size, Switch::_disable_trim);
         if (_enable_ecn){
                 if (!tor || dir == UPLINK || _enable_ecn_on_tor_downlink) {
@@ -254,7 +259,7 @@ void DragonFlyPlusTopology::init_network(){
 
             if (qt==LOSSLESS){
                 ((LosslessQueue*)queues_leaf_host[j][k])->setRemoteEndpoint(queues_host_leaf[k][j]);
-            }else if (qt==LOSSLESS_INPUT || qt == LOSSLESS_INPUT_ECN){
+            }else if (qt == COMPOSITE || qt==LOSSLESS_INPUT || qt == LOSSLESS_INPUT_ECN){
                 //no virtual queue needed at server
                 new LosslessInputQueue(*_eventlist, queues_host_leaf[k][j], leafs[j], _hop_latency);
             }
@@ -297,7 +302,7 @@ void DragonFlyPlusTopology::init_network(){
             if (qt==LOSSLESS){
                 ((LosslessQueue*)queues_leaf_spine[j][k])->setRemoteEndpoint(queues_spine_leaf[k][j]);
                 ((LosslessQueue*)queues_spine_leaf[k][j])->setRemoteEndpoint(queues_leaf_spine[j][k]);
-            }else if (qt==LOSSLESS_INPUT || qt == LOSSLESS_INPUT_ECN){           
+            }else if (qt == COMPOSITE || qt==LOSSLESS_INPUT || qt == LOSSLESS_INPUT_ECN){           
                 new LosslessInputQueue(*_eventlist, queues_leaf_spine[j][k], spines[k], _hop_latency);
                 new LosslessInputQueue(*_eventlist, queues_spine_leaf[k][j], leafs[j], _hop_latency);
             }
@@ -349,7 +354,7 @@ void DragonFlyPlusTopology::init_network(){
                 if (qt==LOSSLESS){
                     ((LosslessQueue*)queues_spine_spine[j][k])->setRemoteEndpoint(queues_spine_spine[k][j]);
                     ((LosslessQueue*)queues_spine_spine[k][j])->setRemoteEndpoint(queues_spine_spine[j][k]);
-                }else if (qt==LOSSLESS_INPUT || qt == LOSSLESS_INPUT_ECN){            
+                }else if (qt == COMPOSITE || qt==LOSSLESS_INPUT || qt == LOSSLESS_INPUT_ECN){            
                     new LosslessInputQueue(*_eventlist, queues_spine_spine[j][k], spines[k], _hop_latency);
                     new LosslessInputQueue(*_eventlist, queues_spine_spine[k][j], spines[j], _hop_latency);
                 }
@@ -397,7 +402,7 @@ void DragonFlyPlusTopology::init_network(){
                 if (qt==LOSSLESS){
                     ((LosslessQueue*)queues_spine_spine[j][k])->setRemoteEndpoint(queues_spine_spine[k][j]);
                     ((LosslessQueue*)queues_spine_spine[k][j])->setRemoteEndpoint(queues_spine_spine[j][k]);
-                }else if (qt==LOSSLESS_INPUT || qt == LOSSLESS_INPUT_ECN){            
+                }else if (qt == COMPOSITE || qt==LOSSLESS_INPUT || qt == LOSSLESS_INPUT_ECN){            
                     new LosslessInputQueue(*_eventlist, queues_spine_spine[j][k], spines[k], _hop_latency);
                     new LosslessInputQueue(*_eventlist, queues_spine_spine[k][j], spines[j], _hop_latency);
                 }
@@ -1097,4 +1102,9 @@ void DragonFlyPlusTopology::print_path(std::ofstream &paths, uint32_t src, const
     }
   
     paths << endl;
+}
+
+void DragonFlyPlusTopology::connectHostToHostQueue(uint32_t src, UecSrcPort *port_src) {
+    HostQueue* q = (HostQueue*) queues_host_leaf[src][HOST_TOR(src)];
+    q->addHostSender(port_src);
 }

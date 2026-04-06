@@ -107,6 +107,8 @@ public:
     simtime_picosec get_diameter_latency() {return 5 * _hop_latency + 4 * _switch_latency;};
     simtime_picosec get_two_point_diameter_latency(int src, int dst);
 
+    void connectHostToHostQueue(uint32_t src, UecSrcPort *port_src) override;
+
 private:
     int64_t find_switch(Queue* queue);
     int64_t find_destination(Queue* queue);
