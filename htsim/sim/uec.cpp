@@ -2120,7 +2120,7 @@ mem_b UecSrc::sendNewPacket(const Route& route) {
     _pull_target = computePullTarget();
 
     auto* p = UecDataPacket::newpkt(_flow, route, _highest_sent, full_pkt_size, ptype,
-                                     _pull_target, _dstaddr);
+                                     _pull_target, _srcaddr, _dstaddr);
 
     uint16_t ev = _mp->nextEntropy(_highest_sent, (uint64_t)_cwnd/_mss);
     p->set_pathid(ev);
@@ -2165,7 +2165,7 @@ mem_b UecSrc::sendRtxPacket(const Route& route) {
     _pull_target = computePullTarget();
     
     auto* p = UecDataPacket::newpkt(_flow, route, seq_no, full_pkt_size, UecDataPacket::DATA_RTX,
-                                     _pull_target, _dstaddr);
+                                     _pull_target, _srcaddr, _dstaddr);
 
     uint16_t ev = _mp->nextEntropy(_highest_sent, (uint64_t)_cwnd/_mss);
     p->set_pathid(ev);
@@ -2197,7 +2197,7 @@ void UecSrc::sendProbe() {
     }
     _probe_seqno++;
     auto* p = UecDataPacket::newpkt(_flow, NULL, _probe_seqno, _hdr_size,
-                                    UecBasePacket::DATA_PROBE, 0, _dstaddr);
+                                    UecBasePacket::DATA_PROBE, 0, _srcaddr, _dstaddr);
     p->set_dst(_dstaddr);
     uint16_t ev = _mp->nextEntropy(_highest_sent, (uint64_t)_cwnd/_mss);
     p->set_pathid(ev);
@@ -2227,7 +2227,7 @@ void UecSrc::sendRTS() {
              << " in_flight " << _in_flight << " pull_target " << _pull_target << " pull " << _pull << endl;
     createSendRecord(_highest_sent, _hdr_size);
     auto* p =
-        UecRtsPacket::newpkt(_flow, NULL, _highest_sent, _pull_target, _dstaddr);
+        UecRtsPacket::newpkt(_flow, NULL, _highest_sent, _pull_target, _srcaddr, _dstaddr);
 
     uint16_t ev = _mp->nextEntropy(_highest_sent, (uint64_t)_cwnd/_mss);
     p->set_pathid(ev);
@@ -2988,7 +2988,7 @@ UecPullPacket* UecSink::pull(UecBasePacket::pull_quanta& extra_credit) {
     }
 
     UecPullPacket* pkt = NULL;
-    pkt = UecPullPacket::newpkt(_flow, NULL, _latest_pull, false, _srcaddr);
+    pkt = UecPullPacket::newpkt(_flow, NULL, _latest_pull, false, _dstaddr, _srcaddr);
     pkt->set_pathid(nextEntropy());
 
     return pkt;
@@ -3049,7 +3049,7 @@ uint64_t UecSink::buildSackBitmap(UecBasePacket::seq_t ref_epsn) {
 UecAckPacket* UecSink::sack(uint16_t path_id, UecBasePacket::seq_t seqno, UecBasePacket::seq_t acked_psn, bool ce, bool rtx_echo) {
     uint64_t bitmap = buildSackBitmap(seqno);
     UecAckPacket* pkt =
-        UecAckPacket::newpkt(_flow, NULL, _expected_epsn, seqno, acked_psn, path_id, ce, _recvd_bytes,_rcv_cwnd_pen,_srcaddr);
+        UecAckPacket::newpkt(_flow, NULL, _expected_epsn, seqno, acked_psn, path_id, ce, _recvd_bytes,_rcv_cwnd_pen, _dstaddr,_srcaddr);
     pkt->set_bitmap(bitmap);
     pkt->set_ooo(_out_of_order_count);
     pkt->set_rtx_echo(rtx_echo);
@@ -3058,7 +3058,7 @@ UecAckPacket* UecSink::sack(uint16_t path_id, UecBasePacket::seq_t seqno, UecBas
 }
 
 UecNackPacket* UecSink::nack(uint16_t path_id, UecBasePacket::seq_t seqno,bool last_hop, bool ecn_echo) {
-    UecNackPacket* pkt = UecNackPacket::newpkt(_flow, NULL, seqno, path_id,  _recvd_bytes,_rcv_cwnd_pen,_srcaddr);
+    UecNackPacket* pkt = UecNackPacket::newpkt(_flow, NULL, seqno, path_id,  _recvd_bytes,_rcv_cwnd_pen, _dstaddr,_srcaddr);
     pkt->set_last_hop(last_hop);
     pkt->set_ecn_echo(ecn_echo);
     return pkt;

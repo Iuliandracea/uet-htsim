@@ -72,7 +72,7 @@ class Packet {
     
     /* empty constructor; Packet::set must always be called as
        well. It's a separate method, for convenient reuse */
-    Packet() {_is_header = false; _bounced = false; _type = IP; _flags = 0; _refcount = 0; _dst = UINT32_MAX; _pathid = UINT32_MAX; _direction = NONE; _ingressqueue = NULL;} 
+    Packet() {_is_header = false; _bounced = false; _type = IP; _flags = 0; _refcount = 0; _dst = UINT32_MAX; _src = UINT32_MAX; _pathid = UINT32_MAX; _direction = NONE; _ingressqueue = NULL; _vc = 0; _prev_vc = 0;} 
 
     /* say "this packet is no longer wanted". (doesn't necessarily
        destroy it, so it can be reused) */
@@ -102,6 +102,10 @@ class Packet {
     
     virtual PacketSink* sendOn2(VirtualQueue* crtSink);
 
+    int vc() { return _vc; };
+    int prevVc() { return _prev_vc; };
+    void setVC(int vc) { _prev_vc = _vc; _vc = vc; };
+
     uint16_t size() const {return _size;}
     void set_size(int i) {_size = i;}
     packet_type type() const {return _type;};
@@ -111,6 +115,8 @@ class Packet {
     virtual ~Packet() {};
     inline const packetid_t id() const {return _id;}
     inline uint32_t flow_id() const {return _flow->flow_id();}
+    inline uint32_t src() const {return _src;}
+    inline void set_src(uint32_t src) { _src = src;}
     inline uint32_t dst() const {return _dst;}
     inline void set_dst(uint32_t dst) { _dst = dst;}
     inline uint32_t pathid() {
@@ -169,6 +175,8 @@ class Packet {
     //    void set_detour(PacketSink* n, int rewind) {_detour = n;_nexthop -= rewind;}
     
     string str() const;
+
+    bool _justChangedVC = false;
  protected:
     void set_attrs(PacketFlow& flow, int pkt_size, packetid_t id);
 
@@ -180,12 +188,13 @@ class Packet {
     
     uint16_t _size,_oldsize;
     
-    
+    int _vc, _prev_vc;
     bool _is_header;
     bool _bounced; // packet has hit a full queue, and is being bounced back to the sender
     uint32_t _flags; // used for ECN & friends
 
     uint32_t _dst; //used for packets that do not have a route in switched networks.    
+    uint32_t _src; //used for packets that do not have a route in switched networks.    
     uint32_t _pathid;  //used for ECMP hashing.
     packet_direction _direction; //used to avoid loop in FatTrees.   
 
